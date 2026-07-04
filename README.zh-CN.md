@@ -18,17 +18,31 @@
 
 它来源于一个私有内部工作流，但已经移除了所有用户相关路径、私有服务地址、账号密码以及组织专用的目录映射。
 
+## 最新更新
+
+### 2026-07-04
+
+- 新增本地 stdio MCP adapter，可直接连接已有 WizServer 部署。
+- 新增文件夹创建、笔记检索/读取、笔记创建/修改工具。
+- 新增 `wiznote-mcp` 包入口，并补充通用 MCP 配置说明。
+
+完整历史：[docs/releases/release-notes.md](./docs/releases/release-notes.md)
+
 ## 包含内容
 
 - `SKILL.md` —— Claude Code skill 定义
 - `wiznote_cli.py` —— 登录、列出、下载、新建、更新笔记的辅助方法
 - `wiznote_helper.py` —— 分类路径校验、镜像路径生成、HTML body 提取等辅助方法
+- `wiznote_mcp.py` —— 本地 stdio MCP adapter，直接调用已有 WizServer HTTP API
 - `tests/` —— 面向公开版行为的 pytest 测试
 
 ## 功能特性
 
 - 通过显式参数或环境变量登录 WizNote
+- 通过本地 MCP 服务使用 WizNote，不需要额外启动 Docker 容器
 - 在可配置的分类根路径下列出笔记
+- 创建 WizNote 文件夹/分类
+- 检索笔记
 - 下载笔记 HTML
 - 用 HTML 创建新笔记
 - 更新已有笔记
@@ -73,6 +87,44 @@ export WIZNOTE_PASSWORD="your-password"
 
 - `category_root` —— 你希望同步到的 WizNote 顶层分类，例如 `/team/docs/`
 - `repo_root` —— 本地仓库根目录，用于生成镜像文件路径
+
+## 本地 MCP adapter
+
+`wiznote_mcp.py` 是一个 stdio MCP 服务。它不需要单独启动 Docker，也不需要修改现有 WizServer 部署。MCP 进程会直接连接已有 WizServer HTTP API。
+
+MCP 配置示例：
+
+```json
+{
+  "mcpServers": {
+    "wiznote": {
+      "command": "python3",
+      "args": [
+        "/path/to/wiznote/wiznote_mcp.py",
+        "--base-url",
+        "http://127.0.0.1:18080",
+        "--username",
+        "you@example.com",
+        "--password",
+        "your-password"
+      ]
+    }
+  }
+}
+```
+
+如果你的 MCP 客户端更适合用环境变量保存密钥，也可以省略这些参数，改用 `WIZNOTE_BASE_URL`、`WIZNOTE_USER`、`WIZNOTE_PASSWORD`。
+
+可用 MCP 工具：
+
+- `wiz_create_folder` —— 创建 WizNote 文件夹/分类
+- `wiz_list_notes` —— 列出某个分类下的笔记
+- `wiz_search_notes` —— 检索笔记
+- `wiz_get_note` —— 读取笔记元信息和 HTML 正文
+- `wiz_create_note` —— 用 HTML 或基础 Markdown 创建笔记
+- `wiz_update_note` —— 用 HTML 或基础 Markdown 更新已有笔记
+
+MCP adapter 只通过 WizServer API 写入，不直写 MySQL 或 `/wiz/storage`，因此权限、版本、对象数据和索引仍然由 WizServer 负责。
 
 ## 快速开始
 
@@ -205,6 +257,7 @@ wiznote/
 ├── SKILL.md
 ├── wiznote_cli.py
 ├── wiznote_helper.py
+├── wiznote_mcp.py
 └── tests/
     ├── conftest.py
     ├── test_cli.py

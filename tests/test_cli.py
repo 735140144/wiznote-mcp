@@ -99,8 +99,8 @@ def test_note_list_request_builds_full_url_and_auth_header():
     assert request.headers == {"X-Wiz-Token": "tok"}
 
 
-def test_note_html_path_uses_download_endpoint_for_markdown_mirror():
-    assert cli.note_html_path("kb-1", "doc-1") == "/ks/note/download/kb-1/doc-1"
+def test_note_html_path_uses_view_endpoint_for_note_body():
+    assert cli.note_html_path("kb-1", "doc-1") == "/ks/note/view/kb-1/doc-1"
 
 
 def test_note_create_request_builds_full_url_json_headers_and_payload():
@@ -154,7 +154,7 @@ def test_fetch_note_html_sends_auth_header_and_returns_text(monkeypatch):
     )
 
     assert captured == {
-        "url": "http://wiz/ks/note/download/kb-1/doc-1",
+        "url": "http://wiz/ks/note/view/kb-1/doc-1",
         "method": "GET",
         "headers": {"X-wiz-token": "tok"},
         "timeout": 10,
@@ -200,14 +200,20 @@ def test_create_note_sends_json_request_and_parses_response(monkeypatch):
 
 
 def test_save_note_sends_json_request_and_parses_response(monkeypatch):
-    captured = {}
+    captured = []
 
     def fake_urlopen(request, timeout):
-        captured["url"] = request.full_url
-        captured["method"] = request.get_method()
-        captured["headers"] = dict(request.header_items())
-        captured["body"] = json.loads(request.data.decode("utf-8"))
-        captured["timeout"] = timeout
+        captured.append(
+            {
+                "url": request.full_url,
+                "method": request.get_method(),
+                "headers": dict(request.header_items()),
+                "body": json.loads(request.data.decode("utf-8")),
+                "timeout": timeout,
+            }
+        )
+        if len(captured) == 1:
+            return FakeResponse({"returnCode": 200, "resources": ["index.html"], "key": "temp-key"})
         return FakeResponse({"returnCode": 200, "result": {"docGuid": "doc-1"}})
 
     monkeypatch.setattr(cli, "urlopen", fake_urlopen)
@@ -222,20 +228,128 @@ def test_save_note_sends_json_request_and_parses_response(monkeypatch):
         html="<p>Hello</p>",
     )
 
-    assert captured == {
-        "url": "http://wiz/ks/note/save/kb-1/doc-1",
-        "method": "PUT",
-        "headers": {"Content-type": "application/json", "X-wiz-token": "tok"},
-        "body": {
-            "kbGuid": "kb-1",
-            "docGuid": "doc-1",
-            "title": "Spec",
-            "category": "/team/docs/",
-            "html": "<p>Hello</p>",
+    assert captured == [
+        {
+            "url": "http://wiz/ks/note/upload/kb-1/doc-1",
+            "method": "POST",
+            "headers": {"Content-type": "application/json", "X-wiz-token": "tok"},
+            "body": {
+                "kbGuid": "kb-1",
+                "docGuid": "doc-1",
+                "title": "Spec",
+                "category": "/team/docs/",
+                "html": "<p>Hello</p>",
+                "resources": [{"name": "index.html", "data": "<p>Hello</p>"}],
+            },
+            "timeout": 10,
         },
+        {
+            "url": "http://wiz/ks/note/save/kb-1/doc-1",
+            "method": "PUT",
+            "headers": {"Content-type": "application/json", "X-wiz-token": "tok"},
+            "body": {
+                "kbGuid": "kb-1",
+                "docGuid": "doc-1",
+                "title": "Spec",
+                "category": "/team/docs/",
+                "html": "<p>Hello</p>",
+                "resources": ["index.html"],
+                "key": "temp-key",
+            },
+            "timeout": 10,
+        },
+    ]
+    assert payload == {"returnCode": 200, "result": {"docGuid": "doc-1"}}
+
+
+def test_create_category_sends_json_request_and_parses_response(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(request, timeout):
+        captured["url"] = request.full_url
+        captured["method"] = request.get_method()
+        captured["headers"] = dict(request.header_items())
+        captured["body"] = json.loads(request.data.decode("utf-8"))
+        captured["timeout"] = timeout
+        return FakeResponse({"returnCode": 200, "result": {"category": "/team/docs/new/"}})
+
+    monkeypatch.setattr(cli, "urlopen", fake_urlopen)
+
+    payload = cli.create_category(
+        base_url="http://wiz",
+        kb_guid="kb-1",
+        token="tok",
+        category="/team/docs/new/",
+    )
+
+    assert captured == {
+        "url": "http://wiz/ks/category/create/kb-1",
+        "method": "POST",
+        "headers": {"Content-type": "application/json", "X-wiz-token": "tok"},
+        "body": {"parent": "/team/docs/", "child": "new"},
         "timeout": 10,
     }
-    assert payload == {"returnCode": 200, "result": {"docGuid": "doc-1"}}
+    assert payload == {"returnCode": 200, "result": {"category": "/team/docs/new/"}}
+
+
+def test_search_notes_sends_json_request_and_parses_response(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(request, timeout):
+        captured["url"] = request.full_url
+        captured["method"] = request.get_method()
+        captured["headers"] = dict(request.header_items())
+        captured["body"] = request.data
+        captured["timeout"] = timeout
+        return FakeResponse({"returnCode": 200, "result": [{"docGuid": "doc-1", "title": "Spec"}]})
+
+    monkeypatch.setattr(cli, "urlopen", fake_urlopen)
+
+    payload = cli.search_notes(
+        base_url="http://wiz",
+        kb_guid="kb-1",
+        token="tok",
+        query="roadmap",
+        start=5,
+        count=10,
+    )
+
+    assert captured == {
+        "url": "http://wiz/ks/note/search/kb-1?ss=roadmap&start=5&count=10&withAbstract=1",
+        "method": "GET",
+        "headers": {"X-wiz-token": "tok"},
+        "body": None,
+        "timeout": 10,
+    }
+    assert payload == {"returnCode": 200, "result": [{"docGuid": "doc-1", "title": "Spec"}]}
+
+
+def test_fetch_note_info_sends_auth_header_and_returns_payload(monkeypatch):
+    captured = {}
+
+    def fake_urlopen(request, timeout):
+        captured["url"] = request.full_url
+        captured["method"] = request.get_method()
+        captured["headers"] = dict(request.header_items())
+        captured["timeout"] = timeout
+        return FakeResponse({"returnCode": 200, "result": {"docGuid": "doc-1", "title": "Spec"}})
+
+    monkeypatch.setattr(cli, "urlopen", fake_urlopen)
+
+    payload = cli.fetch_note_info(
+        base_url="http://wiz",
+        kb_guid="kb-1",
+        doc_guid="doc-1",
+        token="tok",
+    )
+
+    assert captured == {
+        "url": "http://wiz/ks/note/info/kb-1/doc-1",
+        "method": "GET",
+        "headers": {"X-wiz-token": "tok"},
+        "timeout": 10,
+    }
+    assert payload == {"returnCode": 200, "result": {"docGuid": "doc-1", "title": "Spec"}}
 
 
 def test_login_sends_json_request_and_parses_response(monkeypatch):

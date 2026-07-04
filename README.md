@@ -18,17 +18,31 @@ It is built for personal developers and small teams doing vibe coding, where pla
 
 This package is derived from a private internal workflow, but all user-specific paths, hosts, credentials, and organization-specific folder mappings have been removed.
 
+## Latest Updates
+
+### 2026-07-04
+
+- Added a local stdio MCP adapter for existing WizServer deployments.
+- Added tools for folder creation, note search/read, and note create/update workflows.
+- Added the `wiznote-mcp` package entrypoint and generic MCP configuration docs.
+
+Full history: [docs/releases/release-notes.md](./docs/releases/release-notes.md)
+
 ## What it includes
 
 - `SKILL.md` — the Claude Code skill definition
 - `wiznote_cli.py` — login, list, download, create, and update note helpers
 - `wiznote_helper.py` — category validation, mirror-path generation, and HTML body extraction helpers
+- `wiznote_mcp.py` — local stdio MCP adapter that calls an existing WizServer HTTP API
 - `tests/` — pytest coverage for the publicized helper and CLI behavior
 
 ## Features
 
 - Log in to a WizNote server with explicit credentials or environment variables
+- Use WizNote through a local MCP server without running another Docker container
 - List notes under a configurable category root
+- Create WizNote folders/categories
+- Search notes
 - Download note HTML
 - Create new notes from generated HTML
 - Update existing notes
@@ -73,6 +87,44 @@ You also need two runtime values in your scripts:
 
 - `category_root` — the top-level WizNote category you want to sync under, for example `/team/docs/`
 - `repo_root` — the local repository root used for mirror output
+
+## Local MCP adapter
+
+`wiznote_mcp.py` is a stdio MCP server. It does not require a separate Docker container and does not modify your existing WizServer deployment. The MCP process connects directly to the existing WizServer HTTP API.
+
+Example MCP configuration:
+
+```json
+{
+  "mcpServers": {
+    "wiznote": {
+      "command": "python3",
+      "args": [
+        "/path/to/wiznote/wiznote_mcp.py",
+        "--base-url",
+        "http://127.0.0.1:18080",
+        "--username",
+        "you@example.com",
+        "--password",
+        "your-password"
+      ]
+    }
+  }
+}
+```
+
+If your MCP client keeps secrets in environment variables, omit the arguments and set `WIZNOTE_BASE_URL`, `WIZNOTE_USER`, and `WIZNOTE_PASSWORD` instead.
+
+Available MCP tools:
+
+- `wiz_create_folder` — create a WizNote category/folder
+- `wiz_list_notes` — list notes in a category/folder
+- `wiz_search_notes` — search notes
+- `wiz_get_note` — read note metadata and HTML body
+- `wiz_create_note` — create a note from HTML or basic Markdown
+- `wiz_update_note` — update an existing note from HTML or basic Markdown
+
+The MCP adapter writes through WizServer APIs only. It does not write directly to MySQL or `/wiz/storage`, so WizServer still owns permissions, versions, object data, and indexing.
 
 ## Quick start
 
@@ -206,6 +258,7 @@ wiznote/
 ├── SKILL.md
 ├── wiznote_cli.py
 ├── wiznote_helper.py
+├── wiznote_mcp.py
 └── tests/
     ├── conftest.py
     ├── test_cli.py

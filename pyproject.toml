@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wiznote-mcp"
+version = "0.1.0"
+description = "Local stdio MCP adapter for WizNote/WizServer HTTP APIs"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [
+  { name = "WizNote MCP Contributors" }
+]
+dependencies = []
+
+[project.scripts]
+wiznote-mcp = "wiznote_mcp:main"
+
+[tool.setuptools]
+py-modules = ["wiznote_cli", "wiznote_helper", "wiznote_mcp"]

@@ -5,6 +5,8 @@ import json
 import os
 from dataclasses import dataclass
 from json import JSONDecodeError
+from pathlib import PurePosixPath
+from urllib.parse import urlencode
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -116,7 +118,7 @@ def note_create_request(
 
 
 def note_html_path(kb_guid: str, doc_guid: str) -> str:
-    return f"/ks/note/download/{kb_guid}/{doc_guid}"
+    return f"/ks/note/view/{kb_guid}/{doc_guid}"
 
 
 def fetch_note_html(*, base_url: str, kb_guid: str, doc_guid: str, token: str) -> str:
@@ -164,6 +166,77 @@ def create_note(
         raise ValueError("WizNote note create returned invalid JSON") from exc
 
 
+def create_category(
+    *,
+    base_url: str,
+    kb_guid: str,
+    token: str,
+    category: str,
+) -> dict[str, object]:
+    category_path = PurePosixPath(category)
+    parts = [part for part in category_path.parts if part != "/"]
+    if not category_path.is_absolute() or not parts:
+        raise ValueError(f"Category must be an absolute child path: {category}")
+    child = parts[-1]
+    parent = "/" + "/".join(parts[:-1]) + "/" if len(parts) > 1 else "/"
+    payload = {
+        "parent": parent,
+        "child": child,
+    }
+    request = Request(
+        f"{base_url.rstrip('/')}/ks/category/create/{kb_guid}",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"X-Wiz-Token": token, "Content-type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=DEFAULT_TIMEOUT_SECONDS) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except (HTTPError, URLError) as exc:
+        raise ValueError(f"WizNote category create request failed: {exc}") from exc
+    except JSONDecodeError as exc:
+        raise ValueError("WizNote category create returned invalid JSON") from exc
+
+
+def search_notes(
+    *,
+    base_url: str,
+    kb_guid: str,
+    token: str,
+    query: str,
+    start: int = 0,
+    count: int = 20,
+) -> dict[str, object]:
+    params = urlencode({"ss": query, "start": start, "count": count, "withAbstract": 1})
+    request = Request(
+        f"{base_url.rstrip('/')}/ks/note/search/{kb_guid}?{params}",
+        headers={"X-Wiz-Token": token},
+        method="GET",
+    )
+    try:
+        with urlopen(request, timeout=DEFAULT_TIMEOUT_SECONDS) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except (HTTPError, URLError) as exc:
+        raise ValueError(f"WizNote note search request failed: {exc}") from exc
+    except JSONDecodeError as exc:
+        raise ValueError("WizNote note search returned invalid JSON") from exc
+
+
+def fetch_note_info(*, base_url: str, kb_guid: str, doc_guid: str, token: str) -> dict[str, object]:
+    request = Request(
+        f"{base_url.rstrip('/')}/ks/note/info/{kb_guid}/{doc_guid}",
+        headers={"X-Wiz-Token": token},
+        method="GET",
+    )
+    try:
+        with urlopen(request, timeout=DEFAULT_TIMEOUT_SECONDS) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except (HTTPError, URLError) as exc:
+        raise ValueError(f"WizNote note info request failed: {exc}") from exc
+    except JSONDecodeError as exc:
+        raise ValueError("WizNote note info returned invalid JSON") from exc
+
+
 def save_note(
     *,
     base_url: str,
@@ -174,16 +247,40 @@ def save_note(
     category: str,
     html: str,
 ) -> dict[str, object]:
-    payload = {
+    upload_payload = {
         "kbGuid": kb_guid,
         "docGuid": doc_guid,
         "title": title,
         "category": category,
         "html": html,
+        "resources": [{"name": "index.html", "data": html}],
+    }
+    upload_request = Request(
+        f"{base_url.rstrip('/')}/ks/note/upload/{kb_guid}/{doc_guid}",
+        data=json.dumps(upload_payload).encode("utf-8"),
+        headers={"X-Wiz-Token": token, "Content-type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urlopen(upload_request, timeout=DEFAULT_TIMEOUT_SECONDS) as response:
+            upload_result = json.loads(response.read().decode("utf-8"))
+    except (HTTPError, URLError) as exc:
+        raise ValueError(f"WizNote note resource upload request failed: {exc}") from exc
+    except JSONDecodeError as exc:
+        raise ValueError("WizNote note resource upload returned invalid JSON") from exc
+
+    save_payload = {
+        "kbGuid": kb_guid,
+        "docGuid": doc_guid,
+        "title": title,
+        "category": category,
+        "html": html,
+        "resources": upload_result.get("resources"),
+        "key": upload_result.get("key"),
     }
     request = Request(
         f"{base_url.rstrip('/')}/ks/note/save/{kb_guid}/{doc_guid}",
-        data=json.dumps(payload).encode("utf-8"),
+        data=json.dumps(save_payload).encode("utf-8"),
         headers={"X-Wiz-Token": token, "Content-type": "application/json"},
         method="PUT",
     )
